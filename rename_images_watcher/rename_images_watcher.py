@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script de surveillance et renommage automatique d'images PNG en temps réel (Version optimisée)
-Surveille un dossier en continu et renomme automatiquement les nouveaux fichiers PNG.
+Script de surveillance et renommage automatique d'images PNG, JPG et JPEG en temps réel (Version optimisée)
+Surveille un dossier en continu et renomme automatiquement les nouveaux fichiers PNG, JPG et JPEG.
 Optimisé pour un usage minimal des ressources système.
 """
 
@@ -17,8 +17,8 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 
-class PNGRenameHandler(FileSystemEventHandler):
-    """Gestionnaire d'événements optimisé pour surveiller les fichiers PNG."""
+class ImageRenameHandler(FileSystemEventHandler):
+    """Gestionnaire d'événements optimisé pour surveiller les fichiers PNG, JPG et JPEG."""
     
     def __init__(self, prefix="Horizon"):
         self.prefix = prefix
@@ -30,36 +30,42 @@ class PNGRenameHandler(FileSystemEventHandler):
         
     def on_created(self, event):
         """Appelé quand un nouveau fichier est créé."""
-        if not event.is_directory and event.src_path.lower().endswith('.png'):
-            file_name = Path(event.src_path).name
-            # Ignorer les fichiers temporaires créés par le script
-            if file_name.startswith('TEMP_') or file_name in self.temp_files:
-                return
-            print(f"🔍 Événement détecté - Fichier créé: {event.src_path}")
-            self._debounced_process(event.src_path)
+        if not event.is_directory:
+            file_path_lower = event.src_path.lower()
+            if file_path_lower.endswith('.png') or file_path_lower.endswith('.jpg') or file_path_lower.endswith('.jpeg'):
+                file_name = Path(event.src_path).name
+                # Ignorer les fichiers temporaires créés par le script
+                if file_name.startswith('TEMP_') or file_name in self.temp_files:
+                    return
+                print(f"🔍 Événement détecté - Fichier créé: {event.src_path}")
+                self._debounced_process(event.src_path)
     
     def on_modified(self, event):
         """Appelé quand un fichier est modifié."""
-        if not event.is_directory and event.src_path.lower().endswith('.png'):
-            file_name = Path(event.src_path).name
-            # Ignorer les fichiers temporaires et les fichiers déjà traités récemment
-            if file_name.startswith('TEMP_') or file_name in self.temp_files:
-                return
-            # Réduire les événements de modification redondants
-            if self.is_already_renamed(file_name):
-                return
-            print(f"🔍 Événement détecté - Fichier modifié: {event.src_path}")
-            self._debounced_process(event.src_path)
+        if not event.is_directory:
+            file_path_lower = event.src_path.lower()
+            if file_path_lower.endswith('.png') or file_path_lower.endswith('.jpg') or file_path_lower.endswith('.jpeg'):
+                file_name = Path(event.src_path).name
+                # Ignorer les fichiers temporaires et les fichiers déjà traités récemment
+                if file_name.startswith('TEMP_') or file_name in self.temp_files:
+                    return
+                # Réduire les événements de modification redondants
+                if self.is_already_renamed(file_name):
+                    return
+                print(f"🔍 Événement détecté - Fichier modifié: {event.src_path}")
+                self._debounced_process(event.src_path)
     
     def on_moved(self, event):
         """Appelé quand un fichier est déplacé/renommé."""
-        if not event.is_directory and event.dest_path.lower().endswith('.png'):
-            file_name = Path(event.dest_path).name
-            # Ignorer les fichiers temporaires
-            if file_name.startswith('TEMP_'):
-                return
-            print(f"🔍 Événement détecté - Fichier déplacé: {event.dest_path}")
-            self._debounced_process(event.dest_path)
+        if not event.is_directory:
+            file_path_lower = event.dest_path.lower()
+            if file_path_lower.endswith('.png') or file_path_lower.endswith('.jpg') or file_path_lower.endswith('.jpeg'):
+                file_name = Path(event.dest_path).name
+                # Ignorer les fichiers temporaires
+                if file_name.startswith('TEMP_'):
+                    return
+                print(f"🔍 Événement détecté - Fichier déplacé: {event.dest_path}")
+                self._debounced_process(event.dest_path)
     
     def _debounced_process(self, file_path):
         """Traitement avec anti-rebond pour éviter les événements multiples."""
@@ -184,25 +190,28 @@ class PNGRenameHandler(FileSystemEventHandler):
     
     def is_already_renamed(self, filename):
         """Vérifie si un fichier a déjà été renommé."""
-        pattern = rf"^{self.prefix}_\d{{2,}}\.png$"
-        return bool(re.match(pattern, filename))
+        pattern = rf"^{self.prefix}_\d{{2,}}\.(png|jpg|jpeg)$"
+        return bool(re.match(pattern, filename, re.IGNORECASE))
     
     def get_creation_time(self, file_path):
         """Obtient la date de création d'un fichier."""
         return os.path.getctime(file_path)
     
     def check_existing_files(self, directory):
-        """Vérifie et traite les fichiers PNG existants au démarrage."""
+        """Vérifie et traite les fichiers PNG, JPG et JPEG existants au démarrage."""
         try:
-            # Trouver tous les fichiers PNG existants
-            png_files = list(directory.glob("*.png"))
+            # Trouver tous les fichiers d'image existants
+            image_files = []
+            for ext in ["*.png", "*.jpg", "*.jpeg"]:
+                image_files.extend(list(directory.glob(ext)))
+                image_files.extend(list(directory.glob(ext.upper())))
             
-            if not png_files:
+            if not image_files:
                 return 0
             
             # Séparer les fichiers déjà renommés des nouveaux
             new_files = []
-            for file_path in png_files:
+            for file_path in image_files:
                 if not self.is_already_renamed(file_path.name):
                     new_files.append(file_path)
             
@@ -221,16 +230,19 @@ class PNGRenameHandler(FileSystemEventHandler):
             return 0
     
     def reorganize_all_files(self, directory):
-        """Réorganise tous les fichiers PNG du dossier."""
+        """Réorganise tous les fichiers PNG, JPG et JPEG du dossier."""
         try:
-            # Trouver tous les fichiers PNG
-            png_files = list(directory.glob("*.png"))
+            # Trouver tous les fichiers d'image
+            image_files = []
+            for ext in ["*.png", "*.jpg", "*.jpeg"]:
+                image_files.extend(list(directory.glob(ext)))
+                image_files.extend(list(directory.glob(ext.upper())))
             
-            if not png_files:
+            if not image_files:
                 return
             
             # Trier par date de création
-            all_files = png_files.copy()
+            all_files = image_files.copy()
             all_files.sort(key=lambda x: self.get_creation_time(x))
             
             # Créer la liste des renommages nécessaires
@@ -238,11 +250,13 @@ class PNGRenameHandler(FileSystemEventHandler):
             files_to_rename = []
             
             for i, file_path in enumerate(all_files):
-                expected_name = f"{self.prefix}_{i+1:02d}.png"
+                # Préserver l'extension originale
+                ext = file_path.suffix.lower()
+                expected_name = f"{self.prefix}_{i+1:02d}{ext}"
                 current_name = file_path.name
                 
                 if current_name != expected_name:
-                    temp_name = f"TEMP_{i+1:02d}_{self.prefix}.png"
+                    temp_name = f"TEMP_{i+1:02d}_{self.prefix}{ext}"
                     temp_names.append((file_path, temp_name, expected_name))
                     files_to_rename.append(file_path)
             
@@ -571,10 +585,10 @@ def add_new_path(paths_dict):
 
 def main():
     """Fonction principale du service de surveillance."""
-    print("🖼️  Service de surveillance et renommage PNG")
+    print("🖼️  Service de surveillance et renommage PNG, JPG et JPEG")
     print("=" * 55)
     print("📡 Ce service surveille un dossier et renomme automatiquement")
-    print("   les nouveaux fichiers PNG dès qu'ils apparaissent.")
+    print("   les nouveaux fichiers PNG, JPG et JPEG dès qu'ils apparaissent.")
     print()
       # Sélection du dossier à surveiller
     result = get_user_choice()
@@ -626,7 +640,7 @@ def main():
     print()
     
     # Créer le gestionnaire d'événements et l'observateur
-    event_handler = PNGRenameHandler(prefix)
+    event_handler = ImageRenameHandler(prefix)
     observer = Observer()
     observer.schedule(event_handler, directory_path, recursive=False)
     
@@ -645,7 +659,7 @@ def main():
     print("📡 Surveillance en cours...")
     print()
     print("💡 Instructions:")
-    print("   • Le service renomme automatiquement les nouveaux fichiers PNG")
+    print("   • Le service renomme automatiquement les nouveaux fichiers PNG, JPG et JPEG")
     print("   • Ajoutez des fichiers PNG dans le dossier surveillé")
     print("   • Tapez 'menu' pour afficher les options")
     print("   • Appuyez sur Ctrl+C ou tapez 'quit' pour arrêter le service")

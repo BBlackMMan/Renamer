@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script de surveillance et renommage automatique d'images PNG (Version ultra-optimisée)
-Surveille un dossier en continu et renomme automatiquement les nouveaux fichiers PNG.
+Script de surveillance et renommage automatique d'images PNG, JPG et JPEG (Version ultra-optimisée)
+Surveille un dossier en continu et renomme automatiquement les nouveaux fichiers PNG, JPG et JPEG.
 Version optimisée avec réduction de code tout en gardant toutes les fonctionnalités.
 """
 
@@ -18,8 +18,8 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 
-class PNGRenameHandler(FileSystemEventHandler):
-    """Gestionnaire d'événements optimisé pour surveiller les fichiers PNG."""
+class ImageRenameHandler(FileSystemEventHandler):
+    """Gestionnaire d'événements optimisé pour surveiller les fichiers PNG, JPG et JPEG."""
     
     def __init__(self, prefix="Horizon"):
         self.prefix = prefix
@@ -31,7 +31,8 @@ class PNGRenameHandler(FileSystemEventHandler):
         
     def _should_process_file(self, file_path):
         """Vérifie si un fichier doit être traité."""
-        if not file_path.lower().endswith('.png'):
+        file_path_lower = file_path.lower()
+        if not (file_path_lower.endswith('.png') or file_path_lower.endswith('.jpg') or file_path_lower.endswith('.jpeg')):
             return False
         file_name = Path(file_path).name
         return not (file_name.startswith('TEMP_') or file_name in self.temp_files)
@@ -158,16 +159,20 @@ class PNGRenameHandler(FileSystemEventHandler):
     
     def is_already_renamed(self, filename):
         """Vérifie si déjà renommé."""
-        return bool(re.match(rf"^{self.prefix}_\d{{2,}}\.png$", filename))
+        return bool(re.match(rf"^{self.prefix}_\d{{2,}}\.(png|jpg|jpeg)$", filename, re.IGNORECASE))
     
     def check_existing_files(self, directory):
         """Vérifie les fichiers existants au démarrage."""
         try:
-            png_files = list(directory.glob("*.png"))
-            if not png_files:
+            image_files = []
+            for ext in ["*.png", "*.jpg", "*.jpeg"]:
+                image_files.extend(list(directory.glob(ext)))
+                image_files.extend(list(directory.glob(ext.upper())))
+            
+            if not image_files:
                 return 0
             
-            new_files = [f for f in png_files if not self.is_already_renamed(f.name)]
+            new_files = [f for f in image_files if not self.is_already_renamed(f.name)]
             if not new_files:
                 return 0
             
@@ -180,21 +185,27 @@ class PNGRenameHandler(FileSystemEventHandler):
             return 0
     
     def reorganize_all_files(self, directory):
-        """Réorganise tous les fichiers PNG."""
+        """Réorganise tous les fichiers PNG, JPG et JPEG."""
         try:
-            png_files = list(directory.glob("*.png"))
-            if not png_files:
+            image_files = []
+            for ext in ["*.png", "*.jpg", "*.jpeg"]:
+                image_files.extend(list(directory.glob(ext)))
+                image_files.extend(list(directory.glob(ext.upper())))
+            
+            if not image_files:
                 return
             
             # Trier par date de création
-            png_files.sort(key=lambda x: os.path.getctime(x))
+            image_files.sort(key=lambda x: os.path.getctime(x))
             
             # Préparer les renommages
             renames = []
-            for i, file_path in enumerate(png_files):
-                expected = f"{self.prefix}_{i+1:02d}.png"
+            for i, file_path in enumerate(image_files):
+                # Préserver l'extension originale
+                ext = file_path.suffix.lower()
+                expected = f"{self.prefix}_{i+1:02d}{ext}"
                 if file_path.name != expected:
-                    temp = f"TEMP_{i+1:02d}_{self.prefix}.png"
+                    temp = f"TEMP_{i+1:02d}_{self.prefix}{ext}"
                     renames.append((file_path, temp, expected))
             
             if not renames:
@@ -518,9 +529,9 @@ def run_interactive_menu(directory_path, prefix, shortcut_name, event_handler):
 
 def main():
     """Fonction principale optimisée."""
-    print("🖼️  Service de surveillance et renommage PNG")
+    print("🖼️  Service de surveillance et renommage PNG, JPG et JPEG")
     print("=" * 55)
-    print("📡 Surveillance automatique des nouveaux fichiers PNG")
+    print("📡 Surveillance automatique des nouveaux fichiers PNG, JPG et JPEG")
     print()
     
     ui = UserInterface()
@@ -565,7 +576,7 @@ def main():
     print(f"   🏷️  Préfixe: {prefix}")
     
     # Démarrage du service
-    event_handler = PNGRenameHandler(prefix)
+    event_handler = ImageRenameHandler(prefix)
     observer = Observer()
     observer.schedule(event_handler, directory_path, recursive=False)
     
