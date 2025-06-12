@@ -3,7 +3,7 @@
 """
 Script de surveillance et renommage automatique d'images PNG, JPG et JPEG (Version ultra-optimisée)
 Surveille un dossier en continu et renomme automatiquement les nouveaux fichiers PNG, JPG et JPEG.
-Version optimisée avec réduction de code tout en gardant toutes les fonctionnalités.
+Version corrigée pour éliminer les problèmes de fichiers fantômes.
 """
 
 import os
@@ -153,54 +153,72 @@ class ImageRenameHandler(FileSystemEventHandler):
                 return True
         except:
             pass
-            
+        
         print(f"❌ Fichier non stable après {timeout}s: {file_path.name}")
         return False
     
     def is_already_renamed(self, filename):
         """Vérifie si déjà renommé."""
         return bool(re.match(rf"^{self.prefix}_\d{{2,}}\.(png|jpg|jpeg)$", filename, re.IGNORECASE))
-    
+
     def check_existing_files(self, directory):
-        """Vérifie les fichiers existants au démarrage."""
+        """Vérifie les fichiers existants au démarrage - VERSION CORRIGÉE."""
         try:
             image_files = []
             for ext in ["*.png", "*.jpg", "*.jpeg"]:
                 image_files.extend(list(directory.glob(ext)))
                 image_files.extend(list(directory.glob(ext.upper())))
             
-            if not image_files:
+            # CORRECTION PRINCIPALE: Vérifier immédiatement l'existence après glob
+            existing_files = [f for f in image_files if f.exists()]
+            print(f"🔍 Glob trouvé {len(image_files)} entrées, {len(existing_files)} fichiers réellement existants")
+            
+            if not existing_files:
+                print("📂 Aucun fichier image trouvé")
                 return 0
             
-            new_files = [f for f in image_files if not self.is_already_renamed(f.name)]
-            if not new_files:
+            new_files = [f for f in existing_files if not self.is_already_renamed(f.name)]
+            total_files = len(existing_files)
+            new_count = len(new_files)
+            
+            print(f"📊 Total fichiers réels: {total_files}")
+            print(f"📋 Fichiers non renommés: {new_count}")
+            
+            if new_count == 0:
+                print("✅ Tous les fichiers sont déjà correctement nommés")
                 return 0
             
-            print(f"📋 {len(new_files)} fichiers non renommés trouvés")
             self.reorganize_all_files(directory)
-            return len(new_files)
+            return new_count
             
         except Exception as e:
             print(f"❌ Erreur vérification initiale: {e}")
             return 0
-    
+
     def reorganize_all_files(self, directory):
-        """Réorganise tous les fichiers PNG, JPG et JPEG."""
+        """Réorganise tous les fichiers PNG, JPG et JPEG - VERSION CORRIGÉE."""
         try:
             image_files = []
             for ext in ["*.png", "*.jpg", "*.jpeg"]:
                 image_files.extend(list(directory.glob(ext)))
                 image_files.extend(list(directory.glob(ext.upper())))
             
-            if not image_files:
+            # CORRECTION PRINCIPALE: Vérifier immédiatement l'existence des fichiers trouvés par glob
+            existing_files = [f for f in image_files if f.exists()]
+            print(f"🔍 Glob trouvé {len(image_files)} entrées, {len(existing_files)} fichiers réellement existants")
+            
+            if not existing_files:
+                print("📂 Aucun fichier image trouvé")
                 return
             
+            print(f"📊 {len(existing_files)} fichiers existants trouvés")
+            
             # Trier par date de création
-            image_files.sort(key=lambda x: os.path.getctime(x))
+            existing_files.sort(key=lambda x: os.path.getctime(x))
             
             # Préparer les renommages
             renames = []
-            for i, file_path in enumerate(image_files):
+            for i, file_path in enumerate(existing_files):
                 # Préserver l'extension originale
                 ext = file_path.suffix.lower()
                 expected = f"{self.prefix}_{i+1:02d}{ext}"
@@ -214,28 +232,54 @@ class ImageRenameHandler(FileSystemEventHandler):
             
             print(f"🔄 Réorganisation de {len(renames)} fichiers...")
             
-            # Phase 1: Noms temporaires
+            # Phase 1: Noms temporaires (tous les fichiers sont garantis existants)
+            successful_phase1 = []
+            failed_phantom_files = 0
+            
             for file_path, temp, final in renames:
+                # Vérification supplémentaire d'existence avant renommage
+                if not file_path.exists():
+                    failed_phantom_files += 1
+                    continue  # Skip les fichiers fantômes silencieusement
+                    
                 temp_path = file_path.parent / temp
                 self.temp_files.add(temp)
-                file_path.rename(temp_path)
+                try:
+                    file_path.rename(temp_path)
+                    successful_phase1.append((file_path, temp, final))
+                except Exception as e:
+                    print(f"⚠️ Erreur renommage phase 1: {file_path} -> {temp}: {e}")
+                    continue
+            
+            if failed_phantom_files > 0:
+                print(f"ℹ️ {failed_phantom_files} fichiers fantômes ignorés (problème de cache Windows)")
             
             # Phase 2: Noms finaux
-            for file_path, temp, final in renames:
+            successful_renames = 0
+            for file_path, temp, final in successful_phase1:
                 temp_path = file_path.parent / temp
+                if not temp_path.exists():
+                    continue  # Skip si échec phase 1
+                    
                 final_path = file_path.parent / final
                 
                 old_name = file_path.name
-                temp_path.rename(final_path)
-                self.temp_files.discard(temp)
-                
-                creation_time = datetime.fromtimestamp(os.path.getctime(final_path))
-                print(f"✅ {old_name} → {final} (créé le {creation_time.strftime('%Y-%m-%d %H:%M:%S')})")
+                try:
+                    temp_path.rename(final_path)
+                    self.temp_files.discard(temp)
+                    successful_renames += 1
+                    
+                    creation_time = datetime.fromtimestamp(os.path.getctime(final_path))
+                    print(f"✅ {old_name} → {final} (créé le {creation_time.strftime('%Y-%m-%d %H:%M:%S')})")
+                except Exception as e:
+                    print(f"❌ Erreur finale: {temp} -> {final}: {e}")
             
-            print(f"✨ {len(renames)} fichiers réorganisés!")
+            print(f"✨ {successful_renames} fichiers réorganisés avec succès!")
             
         except Exception as e:
             print(f"❌ Erreur réorganisation: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 # === CONFIGURATION ===
