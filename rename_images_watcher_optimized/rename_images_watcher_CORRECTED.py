@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script de surveillance et renommage automatique d'images PNG, JPG et JPEG (Version ultra-optimisée)
+Script de surveillance et renommage automatique d'images PNG, JPG et JPEG (Version corrigée)
 Surveille un dossier en continu et renomme automatiquement les nouveaux fichiers PNG, JPG et JPEG.
-Version corrigée pour éliminer les problèmes de fichiers fantômes.
+Version corrigée pour éliminer DÉFINITIVEMENT les problèmes de fichiers fantômes.
 """
 
 import os
@@ -28,6 +28,53 @@ class ImageRenameHandler(FileSystemEventHandler):
         self.debounce_delay = 1.5
         self.temp_files = set()
         self.processing_lock = threading.Lock()
+        
+    def get_real_image_files(self, directory):
+        """Obtient UNIQUEMENT les fichiers images réellement accessibles - méthode ultra-robuste."""
+        real_files = []
+        
+        # Utiliser os.listdir() au lieu de glob() pour éviter les fichiers fantômes Windows
+        try:
+            all_items = os.listdir(directory)
+            for item in all_items:
+                file_path = directory / item
+                
+                # Vérifier que c'est un fichier (pas un dossier)
+                if not file_path.is_file():
+                    continue
+                
+                # Vérifier l'extension
+                ext = item.lower()
+                if not (ext.endswith('.png') or ext.endswith('.jpg') or ext.endswith('.jpeg')):
+                    continue
+                
+                # Test d'accès ultra-robuste
+                try:
+                    # Test 1: Le fichier existe-t-il vraiment ?
+                    if not file_path.exists():
+                        continue
+                    
+                    # Test 2: Peut-on accéder aux métadonnées ?
+                    stat_info = file_path.stat()
+                    
+                    # Test 3: Le fichier a-t-il une taille > 0 ?
+                    if stat_info.st_size <= 0:
+                        continue
+                    
+                    # Test 4: Peut-on ouvrir le fichier en lecture ?
+                    with open(file_path, 'rb') as f:
+                        f.read(1)  # Lecture d'un seul byte pour vérifier l'accès
+                    
+                    real_files.append(file_path)
+                    
+                except (OSError, PermissionError, FileNotFoundError, IOError):
+                    # Skip tous les fichiers inaccessibles
+                    continue
+                    
+        except Exception as e:
+            print(f"❌ Erreur lors de la lecture du dossier: {e}")
+            
+        return real_files
         
     def _should_process_file(self, file_path):
         """Vérifie si un fichier doit être traité."""
@@ -160,18 +207,14 @@ class ImageRenameHandler(FileSystemEventHandler):
     def is_already_renamed(self, filename):
         """Vérifie si déjà renommé."""
         return bool(re.match(rf"^{self.prefix}_\d{{2,}}\.(png|jpg|jpeg)$", filename, re.IGNORECASE))
-
+    
     def check_existing_files(self, directory):
-        """Vérifie les fichiers existants au démarrage - VERSION CORRIGÉE."""
+        """Vérifie les fichiers existants au démarrage - VERSION ULTRA-ROBUSTE."""
         try:
-            image_files = []
-            for ext in ["*.png", "*.jpg", "*.jpeg"]:
-                image_files.extend(list(directory.glob(ext)))
-                image_files.extend(list(directory.glob(ext.upper())))
+            # Utiliser la méthode ultra-robuste pour obtenir les vrais fichiers
+            existing_files = self.get_real_image_files(directory)
             
-            # CORRECTION PRINCIPALE: Vérifier immédiatement l'existence après glob
-            existing_files = [f for f in image_files if f.exists()]
-            print(f"🔍 Glob trouvé {len(image_files)} entrées, {len(existing_files)} fichiers réellement existants")
+            print(f"🔍 Détection robuste: {len(existing_files)} fichiers images réellement accessibles")
             
             if not existing_files:
                 print("📂 Aucun fichier image trouvé")
@@ -182,84 +225,78 @@ class ImageRenameHandler(FileSystemEventHandler):
             new_count = len(new_files)
             
             print(f"📊 Total fichiers réels: {total_files}")
-            print(f"📋 Fichiers non renommés: {new_count}")
+            print(f"📋 Fichiers à réorganiser: {new_count}")
             
-            if new_count == 0:
-                print("✅ Tous les fichiers sont déjà correctement nommés")
-                return 0
+            # Toujours réorganiser pour corriger la numérotation discontinue
+            if total_files > 0:
+                print("🔧 Réorganisation pour garantir une numérotation continue...")
+                self.reorganize_all_files(directory)
             
-            self.reorganize_all_files(directory)
             return new_count
             
         except Exception as e:
             print(f"❌ Erreur vérification initiale: {e}")
             return 0
-
+    
     def reorganize_all_files(self, directory):
-        """Réorganise tous les fichiers PNG, JPG et JPEG - VERSION CORRIGÉE."""
+        """Réorganise tous les fichiers avec numérotation continue garantie."""
         try:
-            image_files = []
-            for ext in ["*.png", "*.jpg", "*.jpeg"]:
-                image_files.extend(list(directory.glob(ext)))
-                image_files.extend(list(directory.glob(ext.upper())))
+            # Utiliser la méthode ultra-robuste
+            existing_files = self.get_real_image_files(directory)
             
-            # CORRECTION PRINCIPALE: Vérifier immédiatement l'existence des fichiers trouvés par glob
-            existing_files = [f for f in image_files if f.exists()]
-            print(f"🔍 Glob trouvé {len(image_files)} entrées, {len(existing_files)} fichiers réellement existants")
+            print(f"🔍 Réorganisation: {len(existing_files)} fichiers réellement accessibles")
             
             if not existing_files:
-                print("📂 Aucun fichier image trouvé")
+                print("📂 Aucun fichier image accessible trouvé")
                 return
             
-            print(f"📊 {len(existing_files)} fichiers existants trouvés")
-            
-            # Trier par date de création
+            # Trier par date de création pour préserver l'ordre chronologique
             existing_files.sort(key=lambda x: os.path.getctime(x))
             
-            # Préparer les renommages
+            # Afficher l'ordre actuel
+            print("📋 Ordre actuel des fichiers:")
+            for i, f in enumerate(existing_files[:10], 1):  # Afficher les 10 premiers
+                print(f"  {i:02d}. {f.name}")
+            if len(existing_files) > 10:
+                print(f"  ... et {len(existing_files) - 10} autres")
+            
+            # Préparer les renommages avec numérotation continue
             renames = []
             for i, file_path in enumerate(existing_files):
                 # Préserver l'extension originale
                 ext = file_path.suffix.lower()
                 expected = f"{self.prefix}_{i+1:02d}{ext}"
+                
                 if file_path.name != expected:
                     temp = f"TEMP_{i+1:02d}_{self.prefix}{ext}"
                     renames.append((file_path, temp, expected))
             
             if not renames:
-                print("✅ Fichiers déjà dans le bon ordre")
+                print("✅ Fichiers déjà dans le bon ordre avec numérotation continue")
                 return
             
             print(f"🔄 Réorganisation de {len(renames)} fichiers...")
             
-            # Phase 1: Noms temporaires (tous les fichiers sont garantis existants)
+            # Phase 1: Noms temporaires pour éviter les conflits
             successful_phase1 = []
-            failed_phantom_files = 0
             
             for file_path, temp, final in renames:
-                # Vérification supplémentaire d'existence avant renommage
-                if not file_path.exists():
-                    failed_phantom_files += 1
-                    continue  # Skip les fichiers fantômes silencieusement
-                    
                 temp_path = file_path.parent / temp
                 self.temp_files.add(temp)
                 try:
                     file_path.rename(temp_path)
                     successful_phase1.append((file_path, temp, final))
+                    print(f"📦 Phase 1: {file_path.name} → {temp}")
                 except Exception as e:
-                    print(f"⚠️ Erreur renommage phase 1: {file_path} -> {temp}: {e}")
+                    print(f"⚠️ Erreur renommage phase 1: {file_path} → {temp}: {e}")
                     continue
             
-            if failed_phantom_files > 0:
-                print(f"ℹ️ {failed_phantom_files} fichiers fantômes ignorés (problème de cache Windows)")
-            
-            # Phase 2: Noms finaux
+            # Phase 2: Noms finaux avec numérotation continue
             successful_renames = 0
             for file_path, temp, final in successful_phase1:
                 temp_path = file_path.parent / temp
                 if not temp_path.exists():
-                    continue  # Skip si échec phase 1
+                    continue
                     
                 final_path = file_path.parent / final
                 
@@ -272,9 +309,24 @@ class ImageRenameHandler(FileSystemEventHandler):
                     creation_time = datetime.fromtimestamp(os.path.getctime(final_path))
                     print(f"✅ {old_name} → {final} (créé le {creation_time.strftime('%Y-%m-%d %H:%M:%S')})")
                 except Exception as e:
-                    print(f"❌ Erreur finale: {temp} -> {final}: {e}")
+                    print(f"❌ Erreur finale: {temp} → {final}: {e}")
             
-            print(f"✨ {successful_renames} fichiers réorganisés avec succès!")
+            print(f"✨ {successful_renames} fichiers réorganisés avec numérotation continue!")
+            
+            # Vérification finale
+            final_files = self.get_real_image_files(directory)
+            final_files.sort(key=lambda x: os.path.getctime(x))
+            
+            print("🔍 Vérification finale de la numérotation:")
+            for i, f in enumerate(final_files[:10], 1):
+                expected_num = f"{i:02d}"
+                actual_num = re.search(rf"{self.prefix}_(\d+)", f.name)
+                if actual_num:
+                    actual_num = actual_num.group(1)
+                    status = "✅" if actual_num == expected_num else "❌"
+                    print(f"  {status} {f.name} (attendu: {expected_num}, trouvé: {actual_num})")
+                else:
+                    print(f"  ❓ {f.name} (format inattendu)")
             
         except Exception as e:
             print(f"❌ Erreur réorganisation: {e}")
